@@ -10,7 +10,7 @@ Execute the full lifecycle for **$ARGUMENTS** — from analysis through PR revie
 
 > **CRITICAL**: Do NOT use plan-mode enter/exit. Do NOT stop to ask the user for approval between phases. Proceed autonomously through every phase below. If you encounter ambiguity, make a reasonable decision, document it, and keep moving.
 
-> **When NOT to invoke**: scope that needs multiple PRs or an integration branch → `/sprint`. A batch of small *unrelated* TODOs → `/todo-batch` if that skill is installed.
+> **When NOT to invoke**: scope that needs multiple PRs or an integration branch → `/sprint`. A batch of small *unrelated* TODOs → `/todo-batch`.
 
 ---
 
