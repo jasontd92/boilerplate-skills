@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Claude Code / Cursor CLI status line.
-# Palette (black terminal): context=yellow (highest), model=white, path=blue (lowest).
+# Order: folder - model - context%. Nord neutrals for folder/model;
+# context is threshold-colored (green <50%, yellow 50-79%, red >=80%) so the
+# color itself is the warning.
 set -euo pipefail
 
 input=$(cat)
@@ -41,13 +43,21 @@ if [[ -n "$PARAM" ]]; then
   MODEL_LABEL="$MODEL $PARAM"
 fi
 
-# ANSI: yellow context, white model, blue place. Reset after each field.
-Y=$'\033[1;33m'
-W=$'\033[0;37m'
-B=$'\033[0;34m'
+# Truecolor: folder = Nord9 blue, model = Nord15 mauve.
+FOLDER_COLOR=$'\033[38;2;129;161;193m'
+MODEL_COLOR=$'\033[38;2;180;142;173m'
 R=$'\033[0m'
 
-printf '%sctx %s%%%s  %s%s%s  %s%s%s\n' \
-  "$Y" "$PCT" "$R" \
-  "$W" "$MODEL_LABEL" "$R" \
-  "$B" "$PLACE" "$R"
+# Context: threshold-colored so the color itself is the warning.
+if (( PCT >= 80 )); then
+  CTX_COLOR=$'\033[38;2;191;97;106m'   # Nord11 red
+elif (( PCT >= 50 )); then
+  CTX_COLOR=$'\033[38;2;235;203;139m'  # Nord13 yellow
+else
+  CTX_COLOR=$'\033[38;2;163;190;140m'  # Nord14 green
+fi
+
+printf '%s%s%s  %s%s%s  %s%s%%%s\n' \
+  "$FOLDER_COLOR" "$PLACE" "$R" \
+  "$MODEL_COLOR" "$MODEL_LABEL" "$R" \
+  "$CTX_COLOR" "$PCT" "$R"

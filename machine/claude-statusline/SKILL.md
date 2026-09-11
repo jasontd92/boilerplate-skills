@@ -1,6 +1,6 @@
 ---
 name: claude-statusline
-description: Configure a Claude Code (and Cursor CLI) status line showing context % in yellow, model in white, and branch/worktree path in blue. Use when setting up statusline, context percentage, or the Claude footer bar.
+description: Configure a Claude Code (and Cursor CLI) status line showing folder, model, and context % in that order — folder and model in fixed Nord colors, context % threshold-colored green/yellow/red by usage. Use when setting up statusline, context percentage, or the Claude footer bar.
 ---
 
 # Claude status line
@@ -9,13 +9,15 @@ Machine-local. Install the script on this Mac, then point Claude Code (and optio
 
 ## What it shows
 
-Left → right, by visibility on a black terminal:
+Left → right:
 
 | Field | Color | Why |
 |---|---|---|
-| **Context used %** | Bold yellow (`\033[1;33m`) | Highest — you act when this climbs |
-| **Model** | White (`\033[0;37m`) | Comfortable, still readable |
-| **Branch / worktree / dir** | Blue (`\033[0;34m`) | Lowest — enough to tell sessions apart, recedes on black |
+| **Branch / worktree / dir** | Nord9 blue (`#81A1C1`) | Where you are, first |
+| **Model** | Nord15 mauve (`#B48EAD`) | Distinct from folder and from the context colors below |
+| **Context used %** | Threshold: green `#A3BE8C` (<50%), yellow `#EBCB8B` (50–79%), red `#BF616A` (≥80%) | The color itself is the warning — no separate label, just the number |
+
+All three use 24-bit truecolor escapes (`\033[38;2;R;G;Bm`), not the 16-color ANSI palette.
 
 Place resolution: `git branch --show-current` in the session cwd (or worktree path) → else worktree name → else directory basename.
 
@@ -69,7 +71,7 @@ echo '{
 }' | ~/.claude/statusline.sh
 ```
 
-You should see yellow `ctx 42%`, white `Opus (Thinking)`, blue place name.
+You should see blue `tmp`, mauve `Opus (Thinking)`, green `42%` (green because it's under 50%).
 
 ## Notes
 
