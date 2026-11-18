@@ -179,7 +179,9 @@ Stages are sequential, but 3 and 4 often interleave (audit chunks dispatched mid
 
 **Determine your binding physical constraint now, and derive concurrency from it** — don't inherit a number. Ask: what actually caps parallelism here? RAM (how many devcontainers/test VMs co-exist)? A shared database? A single seeded fixture set? Browser/Playwright runs that thrash the host? Write the resulting lane model into §2 as a rule, e.g. *"N code-only chunks may run concurrently in worktrees sharing one container; chunks needing the seeded runtime are serial in MAIN; browser runs are serialized program-wide and must claim the slot from PM."* The specific numbers are machine-specific and belong in §2, not in this skill.
 
-**Exit gate**: tracker committed. Shape recorded. Concurrency model written into §2. PM knows the first chunk to dispatch.
+**Make CI's test environment reproducible locally before Stage 3.** Every EM should be able to run the CI suite on their own machine with one command and get CI's result. That means the same browser or runtime image, the same fonts and locale, and the same service versions, typically by running inside CI's container image. Write the command into §2. Each class of failure that only shows up in CI (a layout that overflows under CI's fonts, a missing browser engine) costs a full push → wait → read-log round per occurrence, multiplied by every concurrent EM. It also burns deploy previews. If full parity isn't possible (e.g. one browser engine can't run locally), say in §2 which projects are CI-only, so EMs batch their changes to those projects rather than discovering them one push at a time.
+
+**Exit gate**: tracker committed. Shape recorded. Concurrency model and the local CI-parity command written into §2. PM knows the first chunk to dispatch.
 
 ### Stage 2 — Workstream decomposition (PM)
 Most decomposition was done by Designer. PM's job here is fast:
@@ -222,6 +224,13 @@ The bulk of the sprint. Per-chunk PM cycle:
 🔴 **A chunk is not done when it merges. It is done when its verifier reports.** Merging and verifying pipeline naturally — dispatch chunk N+1's EM while chunk N's verifier runs; they don't contend.
 
 🔴 **The PM never reads code and never debugs.** Detect-stuck → dispatch a *fresh* diagnostic agent with the failure surface (job name, failing step, log excerpt). Inline debugging is unbounded context spend on exactly the path where reserve matters most, and it is what makes one PM able to supervise a dozen chunks across many hours. Escalation is a dispatch, not an investigation.
+
+🔴 **A hand-back is not an exit.** An EM often hands back mid-gate: its report says `NOT MERGED`, with CI still running and a list of remaining steps. The harness may also mark the task "completed" while the agent's own background watcher (Monitor, CI poll) is still alive. Read the exit line, not the notification status:
+- `MERGED` → verify the merge and dispatch the verifier.
+- `NOT MERGED` with remaining steps → if the notification says the agent has live background work, it will resume on its own; wait for the next notification. Otherwise `SendMessage` it with "resume: finish steps N–M" plus any ruling it asked for.
+- **Never dispatch a duplicate EM for a chunk whose agent can still be resumed.** Two agents on one PR race each other's pushes and merges.
+- Require EMs to end every hand-back, final or not, with the exact remaining steps. Then a resumed agent, or a fresh one if it can't be resumed, needs nothing else.
+- Usage-limit or rate-limit terminations are the same case. Resume each agent once the limit resets; its work so far is saved.
 
 When EMs stall (no movement >20 min after cubic completes, or task-notification "completed" but branch tip unchanged):
 1. Wait a bit longer — cubic may not be done.
@@ -352,9 +361,23 @@ State the **blast radius** in one line, then name the **short list of things tha
 
 ---
 
+## Shared brief files (write once, reference from every brief)
+
+Most of a brief repeats across chunks: hard rules, process, gates, exit format. Write those **once** per role, as a file in the PM's scratch directory:
+- `em-common.md`: repo facts, what's already on main, the hard rules, the process steps and the exit-summary format.
+- `verifier-common.md`: read-only rules, the disposable-clone procedure, "reproduce, don't trust", criterion classification, the one-push verdict write and the verdict format.
+
+Each per-chunk brief then says "read `<common file>` first and follow it exactly", and adds only what this chunk needs: scope, criteria and claims. Briefs shrink to a fraction of their size, rule changes reach every later dispatch at once (update the file, then tell live agents), and nobody re-derives the gate. When the PM changes a common file mid-sprint (e.g. a new merge-race rule, or a deploy-quota rule), it also `SendMessage`s the agents already running, because they read it once at start.
+
+🔴 **The two files are separate on purpose, and the verifier's file must not erode independence.** The failure mode is a reviewer who shares the implementer's framing: briefed by the same text, the verifier inherits the same assumptions and stops looking where the EM stopped. So:
+- A verifier never receives the EM common brief, the EM's chunk brief, the EM's transcript or scratch notes, or the PM's opinion of how the chunk went.
+- The verifier common file holds only *method*: how to verify, what counts as evidence, the verdict format. It never holds facts about the code or how it's expected to behave. Every fact a verifier needs about the chunk reaches it as a **claim to test** in its chunk brief (see `## Verifier brief shape`).
+- The verifier reads the tracker's §3 handoff because that is the list of claims under test, not context to adopt. Say so in its brief.
+- Don't let a common file grow into a shared design doc. If a rule says what the code *should* do, it belongs in the workstream's acceptance criteria, where the verifier can test it, not in a brief both roles read.
+
 ## EM brief shape
 
-Self-contained. EM has fresh context — assume they know nothing about prior chunks except what they read from the tracker.
+Self-contained. EM has fresh context — assume they know nothing about prior chunks except what they read from the tracker. Put everything reusable in `em-common.md` (see `## Shared brief files`), and keep the per-chunk brief to scope, criteria and chunk-specific traps.
 
 ```markdown
 You are the **<chunk>-<type>** EM. Your job: <one-sentence scope>.
@@ -411,7 +434,7 @@ For investigation EMs, swap the Process with: read-only, produce a structured ga
 
 ## Verifier brief shape
 
-Fresh context is the whole point — assume it knows nothing and give it everything it must test.
+Fresh context is the whole point — assume it knows nothing and give it everything it must test. Method goes in `verifier-common.md`. Chunk facts go here, phrased as claims to test. Never pass along the EM's brief or reasoning (see `## Shared brief files`).
 
 ```markdown
 You are a **fresh, read-only verifier** for <chunk>. You did not implement this and have no stake in it.
@@ -476,7 +499,9 @@ Base health: <green on every merge commit? name the runs>
 - <anything that must happen in a particular order at deploy, with the consequence of getting it wrong>
 
 ### Decisions for CEO
-- <bullet with options + a recommendation. Lead with the recommendation.>
+| # | Question (plain words) | What was shipped by default | Options and what each gains/loses | Recommendation |
+|---|---|---|---|---|
+| 1 | <the question, with enough context to answer cold> | <current behaviour> | <A: gains / loses · B: gains / loses> | <one line, and why> |
 
 ### Flagged UNVERIFIABLE by verifiers
 - <criteria no agent could check, and why — these are yours>
@@ -491,6 +516,13 @@ Base health: <green on every merge commit? name the runs>
 - Worktrees torn down. Containers as expected. Borrowed checkout state restored.
 - Parked branches: <list, with disposition notes>
 ```
+
+🔴 **Every decision item must stand alone.** The CEO answers async and cold, often from a phone, without the tracker. Before sending, test each item: could it be answered with no follow-up question? If the CEO would have to ask "what does that mean?", "what's the open question?" or "what do I gain or lose?", the item isn't finished. Rules:
+- State the question in the CEO's words, not the system's. Write "logging the same session twice in one day", not "multiple session records per date".
+- When the answer lives in a doc, say what the choice actually is. "See open-questions.md" is not a decision item.
+- Give each option's concrete gain and loss, and name the default already shipped, so "no reply" has a known meaning.
+- Size the stakes honestly. Check a scary number before you lead with it (e.g. on-disk size vs. bytes over the wire).
+- Number the items, so the CEO can reply "2: yes, 6: replace".
 
 **Report what the verifiers refused to confirm, not just what passed.** The UNVERIFIABLE and judgment rows are the highest-value part of the report — they are the only things that reach the human by design rather than by accident.
 
