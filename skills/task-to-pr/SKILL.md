@@ -1,10 +1,10 @@
 ---
-name: ship
+name: task-to-pr
 description: End-to-end autonomous workflow — analyze, implement, lint/fix, commit, open a PR, and resolve review findings. No interruptions. Use for a single feature that should land as one PR. Not for multi-PR programs (use sprint instead).
 argument-hint: [feature/task description]
 ---
 
-# Ship: Autonomous End-to-End Implementation
+# Task-to-PR: Autonomous End-to-End Implementation
 
 Execute the full lifecycle for **$ARGUMENTS** — from analysis through PR review — without pausing for user approval between phases.
 
@@ -44,7 +44,7 @@ Perform a focused analysis. Follow the `/analyze` skill if it is installed.
 1. **Clarify scope** — identify key functionality to add or modify, note constraints
 2. **Explore existing code** — Glob, Grep, Read; map data flow; identify patterns to follow
 3. **Architecture review** — discover backend and frontend layouts from the repo (do not assume a stack). Check services, APIs, schemas, UI routes, and tests as relevant
-4. **Identify affected areas** — files to modify, schema changes, API changes, test impacts
+4. **Identify affected areas** — files to modify, schema changes, API changes, test impacts. If the change alters an interface (a route, function signature, schema, config key, event or file format), list every caller: this repo, other repos and clients, and runtime traffic where you have it.
 5. **Create implementation plan** — write `docs/<feature-name>-plan.md`:
    - Sequence of changes, file-by-file breakdown, key details, edge cases
    - **Browser test scenarios** (if UI changes) — navigation paths, preconditions, actions, expected results (see `/analyze` step 6). These are the initial test blueprint.
@@ -61,7 +61,8 @@ Execute the implementation plan inside the worktree.
 ### Guidelines
 - **Read before editing** — always read existing files first
 - **Follow existing patterns** — match surrounding code style
-- **Minimal changes** — only change what's necessary
+- **Minimal changes by default** — change only what the purpose needs. Prefer a change that can be undone (disable, unregister, flag) to a deletion or refactor, unless the requester asks for cleanup. Problems that were there before become follow-ups, not fixes in this PR.
+- **One review mode per PR** — put mechanical changes (renames, moves, generated output) and logic changes in separate PRs.
 - **No over-engineering** — don't add unrequested features
 - **Use in-container helpers** when the project has them — do not run host language tooling that corrupts container caches
 
@@ -126,8 +127,7 @@ After browser testing, **immediately proceed to Phase 5**.
 3. **Push** — `git push -u origin feat/<feature-name>`
 4. **Create PR** — `gh pr create --base main` with:
    - Concise title (under 70 chars)
-   - Summary section with 1–3 bullet points
-   - Test plan section
+   - A body in the reviewer-ready shape (`~/.claude/skills/pr-review-loop/reviewer-ready.md` section 4): What, Why, How only if the code does not make it clear, Core review, then Verification as a completed `- [x]` checklist. A fix PR also gets the "Issue | Fix | Red on base, green here" table.
    - **Browser proof-of-work as artifacts** when Phase 4 captured screenshots/video — embed key frames or `gh pr comment` them. Copy out of `test-results/` first.
 5. **Return the PR URL**
 
@@ -139,11 +139,11 @@ After the PR is created, **immediately proceed to Phase 6**.
 
 Reach this phase only once **local validation (Phases 3–4) completed and the PR was pushed (Phase 5)**.
 
-Invoke the **`/pr-review-loop`** skill: it watches cubic/codex (or equivalent bot reviewers), addresses legitimate feedback, pushes fixes, and loops until bots pass clean.
+Invoke the **`/pr-review-loop`** skill: it watches cubic/codex (or equivalent bot reviewers), addresses legitimate feedback, pushes fixes, and loops until bots pass clean. Its Phase 3 (reviewer-ready) then tightens the diff, folds review fixes into one commit per fix, and rewrites the description.
 
 > **Run from inside the worktree.** Do **not** run Phase 7 cleanup until the loop reports a clean pass.
 
-> **Autonomy override — a stuck bot never blocks the ship.** If the loop reaches its bot-wait timeout because reviewers are delayed or stuck pending, do **not** pause to ask whether to keep waiting. Record still-pending reviewers and proceed to Phase 7. Findings that do land are still addressed and re-pushed.
+> **Autonomy override — a stuck bot never blocks the PR.** If the loop reaches its bot-wait timeout because reviewers are delayed or stuck pending, do **not** pause to ask whether to keep waiting. Record still-pending reviewers and proceed to Phase 7. Findings that do land are still addressed and re-pushed.
 
 After the review loop passes clean, **immediately proceed to Phase 7**.
 

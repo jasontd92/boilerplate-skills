@@ -25,13 +25,14 @@ To install only Claude or only Cursor: `./install.sh --claude` or `./install.sh 
 | Skill | When to use |
 |---|---|
 | [`analyze`](skills/analyze/SKILL.md) | Understand the codebase and write a plan. Do not implement. |
-| [`ship`](skills/ship/SKILL.md) | One feature, one PR: analyze → implement → lint → browser proof → PR → bot review. |
+| [`task-to-pr`](skills/task-to-pr/SKILL.md) | One feature, one PR: analyze → implement → lint → browser proof → PR → bot review. |
 | [`todo-batch`](skills/todo-batch/SKILL.md) | Many small unrelated TODOs → one worktree, one branch, one PR. |
 | [`sprint`](skills/sprint/SKILL.md) | Multi-PR program. CEO / PM / EM / Verifier / Designer. Independent PRs or a cutover branch. |
+| [`blitz`](skills/blitz/SKILL.md) | A queue of mixed tickets (code, spikes, messages, release steps) with parallel workers and a live board. |
 | [`browser-tests`](skills/browser-tests/SKILL.md) | Playwright proof-of-work: render-gated screenshots, evidence, upload to the PR. |
 | [`pr-review-loop`](skills/pr-review-loop/SKILL.md) | Drive cubic/codex (or equivalent bots) to green. Humans never block. Merge is out of scope. |
 
-Pick **one** entry skill: `/ship`, `/todo-batch`, or `/sprint`. The others are phases those call.
+Pick **one** entry skill: `/task-to-pr`, `/todo-batch`, `/sprint`, or `/blitz`. The others are phases those call.
 
 ## Machine (this laptop)
 

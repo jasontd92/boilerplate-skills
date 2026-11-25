@@ -1,13 +1,13 @@
 ---
 name: sprint
-description: Large scope, multi-PR coding project orchestration — CEO/PM/EM/Verifier/Designer pattern. Use for refactors, schema migrations, or multi-surface features spanning N parallel workstreams. Two shapes: workstreams converging into one CEO-gated cutover PR (when the work must land atomically), or independent PRs straight to main (when each chunk ships alone). Not for single-PR features (use ship instead).
+description: Large scope, multi-PR coding project orchestration — CEO/PM/EM/Verifier/Designer pattern. Use for refactors, schema migrations, or multi-surface features spanning N parallel workstreams. Two shapes: workstreams converging into one CEO-gated cutover PR (when the work must land atomically), or independent PRs straight to main (when each chunk ships alone). Not for single-PR features (use task-to-pr instead).
 argument-hint: [sprint name / one-line scope]
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, Task, WebFetch
 ---
 
 # Sprint
 
-`/sprint` is the orchestration pattern for projects that `/ship` is too small for. Where ship is **one feature → one PR → done**, sprint is a refactor or feature that spans:
+`/sprint` is the orchestration pattern for projects that `/task-to-pr` is too small for. Where task-to-pr is **one feature → one PR → done**, sprint is a refactor or feature that spans:
 
 - Multiple sub-PRs — either into a long-lived integration branch, or straight to `main` (see `## Choose the shape` below)
 - Multiple agent sessions, often across human time off
@@ -16,7 +16,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, Task, WebFetch
 This skill is the durable encoding of a pattern proven on real multi-PR work. The rules in `## Critical gotchas` and `## Multi-agent orchestration hazards` are battle-tested — each one cost wall-clock time when learned, so don't relax them without a reason.
 
 > **When to invoke**: scope can't be one PR. First signal is "this needs to be broken into workstreams".
-> **When NOT to invoke**: one-PR features → `/ship`. A batch of small *unrelated* TODOs → `/todo-batch` (that batches N trivia into ONE PR; this splits N coupled workstreams across many). Single-bug investigations → `/investigate`. Plan-mode review of an existing plan → `/plan-eng-review` / `/plan-ceo-review`.
+> **When NOT to invoke**: one-PR features → `/task-to-pr`. A batch of small *unrelated* TODOs → `/todo-batch` (that batches N trivia into ONE PR; this splits N coupled workstreams across many). Single-bug investigations → `/investigate`. Plan-mode review of an existing plan → `/plan-eng-review` / `/plan-ceo-review`.
 
 ---
 
@@ -187,7 +187,8 @@ Stages are sequential, but 3 and 4 often interleave (audit chunks dispatched mid
 Most decomposition was done by Designer. PM's job here is fast:
 1. Verify dependency order. Reorder §3 stubs into dispatch order.
 2. Flag investigation-first vs straight-to-impl chunks. A WS is investigation-first if the callsite map is suspect, the data shape isn't fully understood, or there's a flagged production-bug-shaped concern.
-3. Add audit chunks at the end: `integration-audit`, `browser-tests` (Runner EM, primary local env (MAIN) — see Gotcha #11b), `coverage-fill`, `cutover-finalize`.
+3. **Split by review mode.** A chunk that mixes mechanical changes (renames, moves, generated output, removed exposure) with logic changes becomes two chunks, each with its own PR.
+4. Add audit chunks at the end: `integration-audit`, `browser-tests` (Runner EM, primary local env (MAIN) — see Gotcha #11b), `coverage-fill`, `cutover-finalize`.
 
 **Exit gate**: §3 stubs are in dispatch order, each tagged with EM type.
 
@@ -310,6 +311,7 @@ The tracker is the single durable artifact of the sprint. Append-mostly. Lives a
 
 ### Pre-merge gates
 - Unit tests pass on the chunk scope.
+- The reviewer-ready pass is done (`pr-review-loop` Phase 3): line counts before and after in the exit summary, one commit per fix, and a description in the reviewer-ready shape.
 - Cubic re-review on the latest commit is clean AND all review threads are resolved on GitHub.
 - Lint passes — **and the EM names which tree it linted, and attaches the log to the PR before cleanup.** "EXIT 0" without naming the tree is not evidence, and a worktree's log evaporates when the worktree is removed.
 - The base is green **at the moment of merge** — re-queried, not inherited from a status report.
@@ -332,6 +334,7 @@ State the **blast radius** in one line, then name the **short list of things tha
 - Conventional Commits (feat/fix/refactor/docs/test/chore/perf/style/build/ci) with optional scope.
 - NEVER include "Co-authored by Claude" trailer.
 - `git add <specific files>` — NEVER `-A`.
+- One commit per fix. Review fixes are `--fixup` commits, folded in before merge. Never leave a change followed by its revert.
 
 ### Devcontainer & worktrees
 - 2-devcontainer cap on this machine. One impl worktree at a time.
@@ -375,6 +378,53 @@ Each per-chunk brief then says "read `<common file>` first and follow it exactly
 - The verifier reads the tracker's §3 handoff because that is the list of claims under test, not context to adopt. Say so in its brief.
 - Don't let a common file grow into a shared design doc. If a rule says what the code *should* do, it belongs in the workstream's acceptance criteria, where the verifier can test it, not in a brief both roles read.
 
+---
+
+## Herdr leaderboard (when `HERDR_ENV=1`)
+
+When the PM runs inside Herdr, keep a live leaderboard in a pane beside the PM conversation. The tracker stays the durable record. The board is the live view: the CEO sees at a glance what moves, what is at goal, and what needs them.
+
+**Layout.** Put the board pane to the right of the PM pane (`--no-focus`). Run EMs and verifiers as named Herdr agents in a separate tab per batch, one git worktree each. An agent that needs Claude in Chrome must start with the flag: `herdr agent start <name> --kind claude --pane <id> -- --chrome`. Without it, the agent stops at an extension setup screen even when the extension is installed. Use plain-word labels everywhere: "Retention script", not "WS3-ret".
+
+**Setup (Stage 1, beside the tracker bootstrap).**
+```bash
+BOARD=<scratch dir>/board; mkdir -p $BOARD
+printf '<Sprint title>\n<main goal, e.g. chunks merged and verified>\n' > $BOARD/title.txt
+# key|what|owner|status file — one row per chunk, plus rows for work the PM or CEO owns
+echo 'WS1|Schema change|em-ws1|<worktree>/.sprint-status.txt' >> $BOARD/rows.txt
+printf 'No deploys\nNo force pushes\n' > $BOARD/limits.txt   # one hard rule per line, from tracker §2
+pane=$(herdr pane split --current --direction right --cwd "$BOARD" --no-focus | jq -r .result.pane.pane_id)
+herdr pane run $pane "SIDEBAR_PANE=$HERDR_PANE_ID <skill dir>/scripts/leaderboard.sh $BOARD"
+herdr pane report-metadata $HERDR_PANE_ID --source sprint --title "<Sprint title>"
+```
+Add `.sprint-*` to `.git/info/exclude` (all worktrees share it), so no status file gets committed. `leaderboard.sh $BOARD --once` prints one frame: use it to read the board yourself or to test a change to the script.
+
+**Status files.** Put this hard rule in every EM brief: *"Each time your stage changes, overwrite `<worktree>/.sprint-status.txt` with one line: `<stage> | <short detail>`."* The PM writes the status files for rows it owns. The first word of the stage sets the color:
+
+| Stage starts with | Shows as | Meaning |
+|---|---|---|
+| `needs you` | magenta ➜, also under NEEDS YOU | The CEO must act. The detail is the exact action. |
+| `done`, `merged`, `verified`, `PR open`, `sent`, `shared`, `dropped`, `results posted`, `write-up posted` | green ✔ | At the sprint's goal. Counts toward the main goal. |
+| `blocked` | red ✖ | Stuck on the PM. The detail is the question. |
+| `waiting`, `not started` | dim · | Not running yet. A missing status file shows as `not started`. |
+| anything else (`building`, `testing`, `review loop`) | cyan ● | Working. |
+
+Set `MET=<regex>` to match the finish line in §2. If the CEO merges, `PR open` is at goal. If EMs merge, only `verified` is.
+
+🔴 **NEEDS YOU is the primary call to action.** It sits at the top in a bright bar. It holds every row with a `needs you` stage, plus each line of `needs-you.txt` for items that have no row (a decision, a draft to send). Each item names the exact action, not a topic: "approve the migration window (Tuesday or Thursday)", not "migration question". Remove the line when the CEO acts. When nothing needs the CEO, the bar says so in green.
+
+**No flicker.** The script redraws in place: cursor home, each line followed by clear-to-end-of-line, then clear-below. It hides the cursor and redraws only when the content changes. Never `clear` in a loop. Each chunk takes two lines (name, then stage and detail cut to the pane width), so a narrow pane does not wrap.
+
+**Sidebar.** With `SIDEBAR_PANE` set, the script reports `goal` and `needs` tokens to that pane's Herdr sidebar each time the counts change.
+
+**Watch the status files, not only the agents.** Arm one Monitor on a small loop that prints a line when a status file changes stage, and when `herdr agent list` shows an agent as `blocked`. This covers A7: a chunk with no PR yet still reports its stage.
+
+🔴 **Herdr does not recognize every dialog.** An agent stuck in an unknown prompt (for example, a browser-extension setup screen) shows as `idle` or `done`, not `blocked`. If an agent is idle but its status file says it is working, read its pane (`herdr agent read <name> --source visible`) before you assume it finished. Answer only the dialogs that the brief already authorizes. Put the rest under NEEDS YOU.
+
+**zsh traps when you edit the script.** Write `${E}[0m`, not `$E[0m`: zsh reads `$E[` as an array subscript. Loop over `"${arr[@]}"` (quoted): an unquoted array drops empty elements, which removes the blank lines from the frame.
+
+---
+
 ## EM brief shape
 
 Self-contained. EM has fresh context — assume they know nothing about prior chunks except what they read from the tracker. Put everything reusable in `em-common.md` (see `## Shared brief files`), and keep the per-chunk brief to scope, criteria and chunk-specific traps.
@@ -404,13 +454,14 @@ You are the **<chunk>-<type>** EM. Your job: <one-sentence scope>.
 - Cubic auto-resolution unreliable, codex never auto-resolves — always GraphQL-resolve threads.
 - Dismissed cubic warnings MUST have a visible thread comment.
 - **Escalate rather than decide** anything in the tracker's HALT column. "It seemed obviously right" is not authority.
+- **Do not reopen settled decisions** (tracker §2 directives and "explicitly cut"). When a bot raises one, reply in its thread with the reason.
 
 # Process
 1. Pre-flight: `git fetch && git rev-parse origin/<integration-branch>` — matches tracker §1?
 2. Implement the chunk per workstream doc.
 3. Open sub-PR: `gh pr create --base <integration-branch> --head <chunk-branch> --title "..." --body-file ...`.
 4. Own the review loop. Address findings. GraphQL-resolve threads.
-5. Pre-merge gate: cubic SUCCESS + 0 unresolved + lint EXIT 0 + tests green.
+5. Pre-merge gate: cubic SUCCESS + 0 unresolved + lint EXIT 0 + tests green + reviewer-ready pass done.
 6. Merge: `gh pr merge <N> --merge --delete-branch`.
 7. Append a tracker §3 handoff entry. Commit + push.
 8. Tear down worktree (see gotchas for order).
@@ -419,6 +470,7 @@ You are the **<chunk>-<type>** EM. Your job: <one-sentence scope>.
 # Exit summary format
 EM-EXIT: <chunk> MERGED at <sha>
 TESTS: N/M
+DIFF: hand-written +A −R before → +A −R after the tightening pass
 LINT: EXIT 0 on tree <path>            ← name the tree; attach the log to the PR
 CI STEP RAN: <step name, pulled from the run trace>   ← that it ran, not that the file exists
 DECISIONS: <bullets>

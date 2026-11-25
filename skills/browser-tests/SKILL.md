@@ -16,7 +16,7 @@ Plan and execute browser tests for **$ARGUMENTS** against the local development 
 
 Default to the **primary local env** when that is where fixtures, a known test user, and a healthy DB pool live. During a `/sprint`, browser tests are typically a Stage-4 step on MAIN — not a per-workstream worktree.
 
-To target a worktree (single-PR `/ship` flow), set the test base URL to that worktree's app origin and ensure its DB has the fixtures the scenarios need.
+To target a worktree (single-PR `/task-to-pr` flow), set the test base URL to that worktree's app origin and ensure its DB has the fixtures the scenarios need.
 
 Discover the project's commands (`just wt-info`, `just ensure-ready`, Playwright configs). Do not invent stack-specific recipes.
 

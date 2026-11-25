@@ -1,6 +1,6 @@
 ---
 name: todo-batch
-description: Process a batch of small, unrelated TODOs in parallel — one worktree, one branch, one PR. Use when the user pastes a list of small independent items. Not for coupled multi-PR work (use sprint) or a single feature (use ship).
+description: Process a batch of small, unrelated TODOs in parallel — one worktree, one branch, one PR. Use when the user pastes a list of small independent items. Not for coupled multi-PR work (use sprint) or a single feature (use task-to-pr).
 argument-hint: [paste your list of TODOs]
 ---
 
@@ -10,7 +10,7 @@ Process a batch of small, unrelated TODOs for **$ARGUMENTS** — maximizing para
 
 > **CRITICAL**: Do NOT use plan-mode enter/exit. Do NOT stop to ask the user for approval between phases. Proceed autonomously. If you encounter ambiguity, make a reasonable decision and keep moving.
 
-> **When NOT to invoke**: one feature that should be its own PR → `/ship`. Coupled workstreams that cannot land independently → `/sprint`.
+> **When NOT to invoke**: one feature that should be its own PR → `/task-to-pr`. Coupled workstreams that cannot land independently → `/sprint`.
 
 ---
 
@@ -104,6 +104,7 @@ Run lint and review **once** across all fixes, not per-fix.
    - Clean tree: `cubic review -b -j`
    - Address legitimate P0/P1/P2. Skip false positives with a brief justification.
    - Repeat steps 2–5 until clean.
+6. **Tightening pass**, once for the whole batch (`~/.claude/skills/pr-review-loop/reviewer-ready.md` section 2). Cut code the items do not need, and reject added code for marginal stability.
 
 ---
 
@@ -140,11 +141,12 @@ For each scenario: navigate → verify → on failure, delegate a fix to a backg
    - Preserve external identifiers in the commit message
    - Do NOT include "Co-authored by Claude"
    - If items are diverse enough, consider grouping into 2–3 logical commits by type — each commit should reference the IDs it covers
+   - Never leave a change followed by its revert. Fold each fix into the commit it belongs to.
 3. **Push** — `git push -u origin chore/batch-<short-description>`
 4. **Create PR** — `gh pr create --base main` with:
    - Title: `chore: [concise batch description]`
    - Body: a **single-line bullet per item** with its ID and resolution
-   - Test plan section with browser test results (if applicable)
+   - Verification as a completed `- [x]` checklist, including browser test results (if applicable)
 5. **Return the PR URL**
 
 ---

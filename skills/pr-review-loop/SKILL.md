@@ -1,21 +1,52 @@
 ---
 name: pr-review-loop
-description: Monitor PR code review findings from cubic/codex, address relevant feedback, push fixes, and loop until review passes clean.
+description: Monitor PR code review findings from cubic/codex/Copilot, address relevant feedback, push fixes, and loop until review passes clean.
 argument-hint: [PR number or URL (optional — auto-detects current branch PR)]
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, WebFetch
 ---
 
 # PR Review Loop
 
-Autonomously monitor and address **automated** code review feedback (cubic and codex) on the current PR until the bot reviewers pass clean.
+Autonomously monitor and address **automated** code review feedback (cubic, codex and GitHub Copilot) on the current PR until the bot reviewers pass clean.
 
-> **SCOPE — this loop drives the AUTOMATED reviewers (cubic + codex) to green, nothing more.** It is **DONE** the moment every bot reviewer present on the PR has either (a) approved / its check passed, or (b) re-reviewed your most recent push and left **no new findings**. At that point, conclude and report — do not keep looping.
+> **SCOPE — this loop drives the AUTOMATED reviewers (cubic + codex + Copilot) to green, nothing more.** It is **DONE** the moment every bot reviewer present on the PR has either (a) approved / its check passed, or (b) re-reviewed your most recent push and left **no new findings**. At that point, conclude and report — do not keep looping.
 >
 > **Human approval is NEVER a completion condition and is NEVER awaited.** If a human has *already* left comments, consider and address them like any other finding (Phase 2b). But their *absence* never blocks completion, and you must not sleep/poll waiting for a human review. Merging is also out of scope — a separate land/deploy step, never this loop.
 
 > **CRITICAL**: Maintain a holistic understanding of the PR's original intent throughout. Do NOT double down on bad solutions or over-engineer fixes that conflict with the original requirements. If a review comment suggests a direction that undermines the PR's purpose, skip it and note why. For loops that run long, this is enforced structurally — see **Phase 2f: Architecture sanity checkpoint**.
 
 ---
+
+## Run Copilot locally before pushing
+
+Copilot re-reviews the PR after each push, so every finding it leaves there costs a fix commit and another review round. Running the same review locally first catches those findings before they reach the PR. Use it before the first push (Phase 1) and before each fix push (2d).
+
+**One-time setup** (the user does this):
+
+- macOS (Homebrew): `brew install --cask copilot-cli`
+- Linux: `curl -fsSL https://gh.io/copilot-install | bash`
+
+Then sign in with the GitHub account that has Copilot access:
+
+```bash
+copilot login
+```
+
+This opens the browser to authorize Copilot CLI. Sign in, complete org SSO if prompted, review the requested permissions and select **Authorize GitHub Copilot CLI**. If the terminal shows a one-time code, enter it on GitHub's verification page, then return to the terminal. See the [official installation instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli).
+
+**Run the review** from the feature branch, opening Copilot with high reasoning effort:
+
+```bash
+copilot --reasoning-effort high
+```
+
+Then request a review and specify the comparison base (swap `origin/main` for the PR's base branch if it differs):
+
+```
+/review Use the built-in code-review agent to review this branch against origin/main. Focus on bugs and security issues. Do not modify files or publish anything.
+```
+
+**How the loop uses it:** this is an interactive session, so the user runs it. If `command -v copilot` finds the CLI, ask the user once, at the start, whether they want to run the local review before each push. If yes, give them the two commands above before each push, triage what they paste back with 2b, fix, then push. If they decline, or the CLI isn't installed, point them to the setup once and push as normal.
 
 ## Phase 0: Identify the PR
 
@@ -40,10 +71,11 @@ Autonomously monitor and address **automated** code review feedback (cubic and c
    git log "HEAD..origin/${LOCAL_BRANCH}" --oneline
    ```
    If the remote is ahead of local, run `git pull --rebase` before proceeding.
+4. If there are local commits to push, run the local Copilot review first (see **Run Copilot locally before pushing**).
 
 ## Phase 2: Review Loop
 
-Repeat the following cycle until every bot reviewer (cubic and codex) is green — approved/passed, or re-reviewed your latest push with no new findings. **Bots define "done"; humans do not.**
+Repeat the following cycle until every bot reviewer (cubic, codex and Copilot) is green — approved/passed, or re-reviewed your latest push with no new findings. **Bots define "done"; humans do not.**
 
 ### 2a. Wait for review
 
@@ -52,18 +84,29 @@ Repeat the following cycle until every bot reviewer (cubic and codex) is green �
    gh api repos/{owner}/{repo}/pulls/{pr_number}/comments --jq 'length'
    gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews --jq '[.[] | select(.state != "PENDING")] | length'
    ```
-2. Also check for inline review comments from cubic and codex:
+2. Also check for inline review comments from cubic, codex and Copilot:
    ```bash
    gh api repos/{owner}/{repo}/pulls/{pr_number}/comments \
-     --jq '[.[] | select(.user.login == "cubic-dev-ai[bot]" or .user.login == "codex[bot]" or .user.login == "openai-codex[bot]")] | sort_by(.created_at) | reverse | .[0:20]'
+     --jq '[.[] | select(.user.login == "cubic-dev-ai[bot]" or .user.login == "codex[bot]" or .user.login == "openai-codex[bot]" or .user.login == "Copilot")] | sort_by(.created_at) | reverse | .[0:20]'
    ```
 3. Check the bot reviewers' check status (this is the signal that defines "done"):
    ```bash
    gh pr checks {pr_number}   # look for the cubic / codex review checks → pass | fail | pending
    ```
+   Copilot has no check and never approves: it posts a `COMMENTED` review as
+   `copilot-pull-request-reviewer[bot]`, with a verdict heading such as
+   `🟢 Approval recommended` or `🟡 Changes recommended`. Compare its latest review's
+   commit with the PR head:
+   ```bash
+   gh pr view {pr_number} --json headRefOid --jq .headRefOid
+   gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews \
+     --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | last | {commit_id, submitted_at, verdict: (.body | split("\n") | map(select(startswith("### "))) | .[0])}'
+   ```
    **Completion condition (definitive):** every bot reviewer present on the PR has
    either approved / its check passed, OR re-reviewed your most recent push with no
-   new findings — and there are no unaddressed cubic/codex comments from step 2.
+   new findings — and there are no unaddressed cubic/codex/Copilot comments from step 2.
+   For Copilot that means its latest review is on the head commit and left no new
+   inline comments.
    When that holds, the loop is **COMPLETE** — skip to Phase 3. Do **not** condition
    completion on a human review, and do not exit early while bot comments are still
    unprocessed.
@@ -72,7 +115,7 @@ Repeat the following cycle until every bot reviewer (cubic and codex) is green �
    for a human:
    - First check: wait 5 minutes
    - Subsequent checks: wait 5 minutes
-   - After 20 minutes with no bot-review activity (cubic/codex still haven't completed),
+   - After 20 minutes with no bot-review activity (cubic/codex/Copilot still haven't completed),
      inform the user and ask whether to keep waiting
    Never sleep solely to wait on a human review — a clean bot pass concludes the loop.
 5. Track which comments you've already addressed (by comment ID) to avoid re-processing.
@@ -102,13 +145,9 @@ For applicable findings:
 
 After addressing all new findings in a batch:
 
-1. Create a single commit with a clear message summarizing what was addressed:
-   ```
-   fix: address code review feedback
-
-   - [brief description of each fix]
-   ```
-2. Push to the remote branch.
+1. Commit each fix as a fixup of the commit it corrects: `git commit --fixup=<sha>`. Make one fixup for each target commit. Phase 3 folds the fixups in before a human reviews, so the history stays one commit per fix.
+2. If the user opted in, run the local Copilot review on the fix and address what it finds before pushing (see **Run Copilot locally before pushing**).
+3. Push to the remote branch.
 
 ### 2e. Check for completion
 
@@ -133,12 +172,23 @@ Act on the verdict:
 
 Watch for these inversion signals between checkpoints too — any of them justifies running the checkpoint early: a fix you made becomes the subject of the next round's finding; two findings demand contradictory behavior (you revert your own fix); findings shrink toward race windows or edge cases whose prevention costs more machinery than the harm they prevent; the reviewer's suggested remedy would silently weaken the feature's primary user promise.
 
-## Phase 3: Report
+## Phase 3: Reviewer-ready
+
+Once the bots are green, make the PR cheap to review. Follow `~/.claude/skills/pr-review-loop/reviewer-ready.md`:
+1. Run the tightening pass (section 2). Give it the list of settled decisions.
+2. Fold the fixups, and any tightening commit, into one commit per fix (section 3). Check that the final tree equals the tested tree. Then push once with `--force-with-lease`.
+3. Rewrite the description (section 4), with evidence from runs (section 5).
+4. If the push brings new bot findings, fix real bugs as fixups and fold them in again. Answer settled or pre-existing findings in their threads, and leave the code as it is. Resolve fixed and outdated threads.
+
+For a PR with one small commit and no review fixes, skip steps 1 and 2.
+
+## Phase 4: Report
 
 Conclude the moment the bot reviewers are green — this is a terminal state, not a pause. Summarize what happened:
 - Total review cycles completed
-- Per bot reviewer (cubic, codex): final state — passed/approved, or not present on the PR
+- Per bot reviewer (cubic, codex, Copilot): final state — passed/approved, or not present on the PR
 - Number of findings addressed vs skipped
+- Hand-written diff before and after the tightening pass
 - Any findings you intentionally skipped and why
 - Current PR status, explicitly noting that a **human approval / merge is a separate, out-of-scope step this loop does not perform or wait for** (offer it as a hand-off, don't block on it)
 
@@ -151,5 +201,7 @@ Conclude the moment the bot reviewers are green — this is a terminal state, no
 - **Preserve intent**: Evaluate whether suggestions actually serve the PR's original goal before adopting them. Don't abandon a sound approach just because a reviewer proposed an alternative.
 - **Be surgical**: Small, targeted fixes. Each commit should be easy to review.
 - **Don't fight the linter**: If cubic flags a real issue (type error, unused import, etc.), fix it.
-- **Bots define done, not humans**: A clean pass from cubic + codex is the terminal state. Conclude there. Consider any human comments that already exist, but never poll, sleep, or block waiting for a human review or merge.
+- **Bots define done, not humans**: A clean pass from cubic + codex + Copilot is the terminal state. Conclude there. Consider any human comments that already exist, but never poll, sleep, or block waiting for a human review or merge.
+- **Review locally, push less**: Each push buys another Copilot round. Batch fixes, and run the local Copilot review before pushing when the user has it set up.
+- **Reviewer load is the last gate**: green bots are necessary, not sufficient. Phase 3 trades code added for marginal stability for less to read.
 - **A long loop is a signal, not just work**: fixes that keep spawning the next round's findings mean the loop may be hardening a flawed design. The Phase 2f checkpoint exists to catch this — do not skip it because the individual findings each look reasonable; that is exactly how the inversion hides.
