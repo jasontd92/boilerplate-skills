@@ -1,7 +1,7 @@
 ---
 name: task-to-pr
 description: End-to-end autonomous workflow — analyze, implement, lint/fix, commit, open a PR, and resolve review findings. No interruptions. Use for a single feature that should land as one PR. Not for multi-PR programs (use sprint instead).
-argument-hint: [feature/task description]
+argument-hint: [feature/task description] [--verifier=full|light|off]
 ---
 
 # Task-to-PR: Autonomous End-to-End Implementation
@@ -9,6 +9,8 @@ argument-hint: [feature/task description]
 Execute the full lifecycle for **$ARGUMENTS** — from analysis through PR review — without pausing for user approval between phases.
 
 > **CRITICAL**: Do NOT use plan-mode enter/exit. Do NOT stop to ask the user for approval between phases. Proceed autonomously through every phase below. If you encounter ambiguity, make a reasonable decision, document it, and keep moving.
+
+> **Verifier**: default `full`. Follow `~/.claude/skills/verify/SKILL.md` for the mode, the plan step (Phase 1) and the check step (Phase 7). If the caller supplies a verification plan, use it and skip the plan step. If the caller says it runs the check itself, stop after Phase 6 and hand back.
 
 > **When NOT to invoke**: scope that needs multiple PRs or an integration branch → `/sprint`. A batch of small *unrelated* TODOs → `/todo-batch`.
 
@@ -40,6 +42,8 @@ Boot the local stack using the project's documented command (`just up`, `docker 
 
 Perform a focused analysis. Follow the `/analyze` skill if it is installed.
 
+**First, start the verifier's plan step** (`verify` Step 1) as a background agent in `full` or `light` mode. Give it only the task text and the repo at `main`. Carry on with the analysis while it works. In `off` mode, write the verification plan yourself in step 5, before any code.
+
 ### Steps
 1. **Clarify scope** — identify key functionality to add or modify, note constraints
 2. **Explore existing code** — Glob, Grep, Read; map data flow; identify patterns to follow
@@ -47,7 +51,7 @@ Perform a focused analysis. Follow the `/analyze` skill if it is installed.
 4. **Identify affected areas** — files to modify, schema changes, API changes, test impacts. If the change alters an interface (a route, function signature, schema, config key, event or file format), list every caller: this repo, other repos and clients, and runtime traffic where you have it.
 5. **Create implementation plan** — write `docs/<feature-name>-plan.md`:
    - Sequence of changes, file-by-file breakdown, key details, edge cases
-   - **Browser test scenarios** (if UI changes) — navigation paths, preconditions, actions, expected results (see `/analyze` step 6). These are the initial test blueprint.
+   - **Browser test scenarios** (if UI changes) — navigation paths, preconditions, actions, expected results (see `/analyze` step 6). When the verifier's plan arrives, its checks are the target: add any scenario it has that yours lack.
 
 ### Output
 Briefly summarize the plan in conversation, then **immediately proceed to Phase 2**.
@@ -141,7 +145,7 @@ Reach this phase only once **local validation (Phases 3–4) completed and the P
 
 Invoke the **`/pr-review-loop`** skill: it watches cubic/codex (or equivalent bot reviewers), addresses legitimate feedback, pushes fixes, and loops until bots pass clean. Its Phase 3 (reviewer-ready) then tightens the diff, folds review fixes into one commit per fix, and rewrites the description.
 
-> **Run from inside the worktree.** Do **not** run Phase 7 cleanup until the loop reports a clean pass.
+> **Run from inside the worktree.** Do **not** run Phase 8 cleanup until the loop reports a clean pass.
 
 > **Autonomy override — a stuck bot never blocks the PR.** If the loop reaches its bot-wait timeout because reviewers are delayed or stuck pending, do **not** pause to ask whether to keep waiting. Record still-pending reviewers and proceed to Phase 7. Findings that do land are still addressed and re-pushed.
 
@@ -149,7 +153,15 @@ After the review loop passes clean, **immediately proceed to Phase 7**.
 
 ---
 
-## Phase 7: Worktree Cleanup
+## Phase 7: Verify
+
+Run the verifier's check step (`verify` Step 2) against the final PR, from a fresh read-only agent (or the planner, resumed). Give it the plan, the PR number, the worktree's app URL, and your claims phrased as claims to test. Never your reasoning or transcript. In `off` mode, run the plan yourself.
+
+On `FAIL`, fix the failures as fixup commits, push, and run the check again. After a second `FAIL`, stop and report.
+
+---
+
+## Phase 8: Worktree Cleanup
 
 Run from **inside the worktree directory**:
 
@@ -161,3 +173,9 @@ Run from **inside the worktree directory**:
    ```
 
 This only removes the worktree directory and its containers. The feature branch and remote PR remain intact.
+
+---
+
+## Final report
+
+To the user: the PR URL, the verifier's mode and verdict, anything `FAILED`, `UNVERIFIABLE` or left for human judgment, and reviewers still pending. If the mode was `light` or `off`, say so and list what had no independent check. None of this goes in the PR.

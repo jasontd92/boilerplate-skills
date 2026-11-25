@@ -1,7 +1,7 @@
 ---
 name: todo-batch
 description: Process a batch of small, unrelated TODOs in parallel — one worktree, one branch, one PR. Use when the user pastes a list of small independent items. Not for coupled multi-PR work (use sprint) or a single feature (use task-to-pr).
-argument-hint: [paste your list of TODOs]
+argument-hint: [paste your list of TODOs] [--verifier=full|light|off]
 ---
 
 # TODO Batch: Parallel Small Changes
@@ -9,6 +9,8 @@ argument-hint: [paste your list of TODOs]
 Process a batch of small, unrelated TODOs for **$ARGUMENTS** — maximizing parallelism while sharing a single worktree and PR.
 
 > **CRITICAL**: Do NOT use plan-mode enter/exit. Do NOT stop to ask the user for approval between phases. Proceed autonomously. If you encounter ambiguity, make a reasonable decision and keep moving.
+
+> **Verifier**: default `light`, since the items are small. Follow `~/.claude/skills/verify/SKILL.md` for the mode, the plan step (Phase 1) and the check step (Phase 6).
 
 > **When NOT to invoke**: one feature that should be its own PR → `/task-to-pr`. Coupled workstreams that cannot land independently → `/sprint`.
 
@@ -66,6 +68,8 @@ Spawn **read-only subagents** (Task tool, `subagent_type: "Explore"`) to investi
 4. Report back: files to modify, proposed change, and any risks
 
 Launch all investigation subagents in a **single message** to maximize parallelism.
+
+In the same message, start **one** verifier planner for the whole batch (`verify` Step 1) in `full` or `light` mode. Give it only the numbered item list and the repo at `main`. It writes one or more checks per item. In `off` mode, write the plan yourself, before Phase 2.
 
 ### Conflict check
 When all investigations complete, review the results for **file overlap**:
@@ -151,7 +155,15 @@ For each scenario: navigate → verify → on failure, delegate a fix to a backg
 
 ---
 
-## Phase 6: Worktree Cleanup
+## Phase 6: Verify
+
+Run the verifier's check step (`verify` Step 2) against the PR, from a fresh read-only agent (or the planner, resumed). Give it the plan, the PR number, the worktree's app URL, and each item's claimed resolution as a claim to test. In `off` mode, run the plan yourself.
+
+On `FAIL`, fix the failing items as fixup commits, push, and run the check again. After a second `FAIL`, stop and report.
+
+---
+
+## Phase 7: Worktree Cleanup
 
 1. Stop the worktree stack (project's compose/down command)
 2. Remove containers + volumes if the project documents it
@@ -161,3 +173,9 @@ For each scenario: navigate → verify → on failure, delegate a fix to a backg
    ```
 
 This only removes the worktree directory and its containers. The feature branch and remote PR remain intact.
+
+---
+
+## Final report
+
+To the user: the PR URL, one line per item (done or blocked), the verifier's mode and verdict, and anything `FAILED`, `UNVERIFIABLE` or left for human judgment. If the mode was `light` or `off`, say so and list what had no independent check. None of this goes in the PR.

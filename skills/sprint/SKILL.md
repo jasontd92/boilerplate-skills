@@ -1,7 +1,7 @@
 ---
 name: sprint
 description: Large scope, multi-PR coding project orchestration — CEO/PM/EM/Verifier/Designer pattern. Use for refactors, schema migrations, or multi-surface features spanning N parallel workstreams. Two shapes: workstreams converging into one CEO-gated cutover PR (when the work must land atomically), or independent PRs straight to main (when each chunk ships alone). Not for single-PR features (use task-to-pr instead).
-argument-hint: [sprint name / one-line scope]
+argument-hint: [sprint name / one-line scope] [--verifier=full|light]
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, Task, WebFetch
 ---
 
@@ -89,38 +89,17 @@ EM types:
 - **Coverage-investigator EM** — pre-cutover audit; reads tests + production code; produces coverage matrix
 - **Runner EM** — executes the browser/integration suite; tees output to a CEO-tailable logfile
 
-### Verifier (one per chunk — NOT optional)
+### Verifier (one per chunk — never `off`)
 
 **The implementing EM never marks its own acceptance criteria.** Self-certification is where "reaching" happens: the agent that wants the chunk closed is the worst judge of whether it is. After an EM exits, PM dispatches a **fresh, read-only** verifier that reads the PR diff plus the EM's artifacts and is the **only** actor permitted to tick boxes. Fresh context is the point — no sunk cost in the implementation it's judging.
 
 This applies to **both shapes**. Under a cutover it matters more, not less: the cutover is a single moment where you most want to know each chunk is real.
 
-- **Read-only toward code.** No edits, pushes, merges, or re-running the work. Permitted writes: ticking criteria boxes in the acceptance-criteria doc, and any issue-tracker mirror. Mutations for verification are allowed **only** in its own disposable worktree, reverted with a clean tree confirmed afterward.
-- **Reproduces, doesn't trust.** Re-runs the command and compares output; queries the live system rather than reading the doc that describes it. "The EM said X" is not evidence.
-- **Classifies every criterion before judging it:**
-
-| Type | Evidence | Who marks it |
-|---|---|---|
-| **Mechanical** — lint EXIT 0, CI green, a string in zero files, a percentage | a command **and its output** | verifier re-runs it |
-| **Empirical** — payload correct, event delivered, migration applied | test output / live query result | verifier compares artifact to criterion |
-| **Judgment** — is this mapping *right*? is the page usable? | none | **human**, via morning report |
-
-- 🔴 **A criterion that cannot be mechanically or empirically checked is not a checkbox — it is a question for the morning report.** Otherwise agents tick boxes on vibes.
-- 🔴 **Untick-with-reason beats tick-on-vibes.** If a criterion is blocked, say `FAILED` or `UNVERIFIABLE` with why. Blocked is not met, however reasonable the workaround sounds.
-- 🔴 **Report claims that did NOT hold, including unflattering ones.** A verdict is trustworthy because of what it refuses to confirm.
-- **Beware fused criteria.** A single tracker/issue checkbox often bundles two criteria — one met, one not. Tick only when a box's text is **fully** covered. A partially-true tick reads as "delivered" and nobody re-checks it.
-
-**Verifier verdict format** (PM reads only this):
-```
-VERIFIER: <chunk> — <PASS | FAIL | PASS WITH GAPS>
-criteria met:   <n>/<total>
-  - <criterion> → <evidence checked; reproduced or not>
-criteria FAILED:      <list, or none>
-criteria DESCOPED:    <with the decision reference>
-criteria HUMAN:       <judgment calls for the CEO>
-UNVERIFIABLE:         <with why>
-claims that did NOT hold: <list, or none>
-```
+**Method: `~/.claude/skills/verify/SKILL.md`.** Read-only, reproduce don't trust, classify every criterion (mechanical, empirical, judgment), untick with a reason, and its verdict format. What is specific to sprint:
+- **Mode: default `full`, minimum `light`.** `off` is not allowed: EMs merge their own PRs, so the verifier is the only independent check. If `off` is requested, run `light` and say so in the morning report.
+- **The plan step is the acceptance criteria.** The PM and Designer write them per workstream before any EM starts, from the task and `main`, so no separate planner runs. Write each criterion as a check: real inputs, the command or steps, the expected output.
+- **Permitted writes:** ticking boxes in the acceptance-criteria doc and any issue-tracker mirror. Nothing else.
+- **Judgment criteria and `UNVERIFIABLE` items go to the CEO** through the morning report.
 
 **Why it earns its cost**: on the run this pattern was hardened, per-chunk verifiers caught an EM's "zero exceptions" claim being false (it was 198 of 8,154), a `main` that was reported green but whose integration suite had been concurrency-cancelled, a merge gate that was post-merge detection rather than pre-merge prevention, and a live production exposure sitting **entirely outside every acceptance criterion**. All four would have shipped labelled "verified."
 
@@ -172,7 +151,7 @@ Stages are sequential, but 3 and 4 often interleave (audit chunks dispatched mid
 ### Stage 1 — Tracker bootstrap (PM)
 1. Create the tracker file (see `## Tracker shape` below). Suggested location: `scripts/em-loop/tracker.md` or `docs/<feature>/tracker.md`.
 2. §1 Active state: **the chosen shape**, integration tip or `origin/main` SHA, empty open-PRs/worktrees/subagents, next chunk = first WS.
-3. §2 CEO directives: transcribe verbatim from CEO sign-off in Stage 0 + the binding rules from `## Critical gotchas` that apply to this repo. **Include the verification posture and the who-ticks-boxes table** (see Tracker shape).
+3. §2 CEO directives: transcribe verbatim from CEO sign-off in Stage 0 + the binding rules from `## Critical gotchas` that apply to this repo. **Include the verification posture, the verifier mode and the who-ticks-boxes table** (see Tracker shape).
 4. §3 Per-chunk handoff log: pre-populate one stub per workstream, **in dependency order**.
 5. **Cutover shape only**: create the integration branch from `main` and push.
 6. Commit the tracker + design docs.
@@ -368,7 +347,7 @@ State the **blast radius** in one line, then name the **short list of things tha
 
 Most of a brief repeats across chunks: hard rules, process, gates, exit format. Write those **once** per role, as a file in the PM's scratch directory:
 - `em-common.md`: repo facts, what's already on main, the hard rules, the process steps and the exit-summary format.
-- `verifier-common.md`: read-only rules, the disposable-clone procedure, "reproduce, don't trust", criterion classification, the one-push verdict write and the verdict format.
+- `verifier-common.md`: "follow `~/.claude/skills/verify/SKILL.md` Step 2 in `<mode>` mode", plus this sprint's own method: the disposable-clone procedure and the one-push verdict write.
 
 Each per-chunk brief then says "read `<common file>` first and follow it exactly", and adds only what this chunk needs: scope, criteria and claims. Briefs shrink to a fraction of their size, rule changes reach every later dispatch at once (update the file, then tell live agents), and nobody re-derives the gate. When the PM changes a common file mid-sprint (e.g. a new merge-race rule, or a deploy-quota rule), it also `SendMessage`s the agents already running, because they read it once at start.
 
@@ -499,10 +478,8 @@ You are a **fresh, read-only verifier** for <chunk>. You did not implement this 
 # What to verify
 PR #NNNN, MERGED at <sha>. Criteria: <path to acceptance-criteria doc>.
 
-# Classify, then judge
-Mechanical → command + output, re-run where cheap. Empirical → artifact vs criterion.
-Judgment → DO NOT TICK; mark HUMAN. A criterion that can't be mechanically or empirically
-checked is not a checkbox — it is a question for the morning report.
+# Method
+Follow `verify` Step 2 in <mode> mode (via `verifier-common.md`). Judgment criteria → DO NOT TICK; mark HUMAN.
 
 # Claims to test, not trust
 <Every substantive claim the EM made, listed individually. Include the numbers so the verifier
@@ -519,7 +496,7 @@ criteria DESCOPED, not FAILED, and state honestly that they are undelivered.>
 <Known false-reds, env vars that flip local behaviour, anything that will look like a defect.>
 
 # Report — the PM reads only this
-<the verdict block from ## The five roles → Verifier>
+<the verdict format from `verify`>
 Be blunt in both directions. Send the verdict block when done; do not go idle without it.
 ```
 
@@ -535,6 +512,8 @@ PM-to-CEO async handoff. Lead with the decision/answer.
 **TL;DR: <Merge | Hold for X | Decision needed on Y | Shipped, N decisions for you>**
 
 ### What landed
+Verifier mode: <full | light> (<why, if not full>)
+
 | chunk | PR | merge sha | verifier verdict |
 |---|---|---|---|
 | <WS> | #NNNN | `<sha>` | PASS / PASS WITH GAPS n/m / FAIL |

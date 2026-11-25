@@ -1,7 +1,7 @@
 ---
 name: blitz
 description: Work through a queue of unrelated tickets in one session (code, spikes, experiments, messages and release steps) with parallel workers, a live board, and tracker statuses kept in sync. Use when the user says "blitz", "work through my tickets", "clear my Linear queue", or hands over a list of mixed tickets. Not for one feature (use task-to-pr), one multi-PR project (use sprint), or small code fixes that fit one PR (use todo-batch).
-argument-hint: [ticket filter, e.g. "my unblocked tickets in team KOC"]
+argument-hint: [ticket filter, e.g. "my unblocked tickets in team KOC"] [--verifier=full|light|off]
 ---
 
 # Blitz
@@ -52,7 +52,11 @@ Before sign-off, sweep: for each row, compare the tracker status with the PR sta
 
 ## 5. Rules by type
 
-**Code.** For a PR that can reach prod, start a blind verifier when the worker starts. The verifier writes a verification plan from the ticket and `main` only, without seeing the work, then checks the PR against that plan. Apply the sprint verifier rules (fresh, read-only, untick with a reason). Report a PR as ready only with its verdict and after the reviewer-ready pass.
+**Code.** Every code ticket gets a verifier: follow `~/.claude/skills/verify/SKILL.md`. Default mode is `full` for a PR that can reach prod and `light` for one that cannot. A `--verifier=` argument or a `Verifier:` line in CLAUDE.md overrides both. You own the verifier, not the worker:
+- Start the planner (`verify` Step 1) when the worker starts, from the ticket and `main` only. Put the plan's path in the worker brief.
+- The worker runs `/task-to-pr` with that plan and stops after Phase 6, before its own check step.
+- When the worker reports the PR open, run the check step from a fresh agent. Give it the plan, the PR and the worker's claims, never the worker's brief or transcript.
+- Report a PR as ready only with its verdict and after the reviewer-ready pass.
 
 **Spike.** In a sandbox or test environment, when the spike hits a missing permission or setting, add it and test. Do not stop at "needs a permission we lack." Report what the same change costs in prod in its own section.
 
@@ -70,6 +74,7 @@ Keep it under one page:
 Ticket <KEY>: <title> (<type>). Finish line: <from the triage table>.
 Read first: <ticket, its comments, linked docs>.
 Worktree: <path>, branch <name>. Skill: <task-to-pr | none>.
+Verification plan (code tickets): <path>. It is your target. Do not edit it. Stop after task-to-pr Phase 6: the orchestrator runs the check.
 Limits: <limits.txt, verbatim>.
 Status file: each time your stage changes, overwrite <path> with one line "<stage> | <detail>".
   Working stages: building, testing, review loop. At the finish line: PR open, write-up posted,
@@ -84,4 +89,4 @@ Report in 10 lines or fewer: result, evidence, what is left. Details go on the t
 
 - Chat updates fit on one screen. Details go to the tracker or the doc.
 - Keep a handoff file in the scratch folder: goal, limits, state of each ticket, next steps. Update it at each event, because a long day compacts the context.
-- End of day: what is done, what waits on the user (exact actions), and what is next. Run the step 4 sweep first.
+- End of day: what is done, what waits on the user (exact actions), and what is next. Give each code ticket's verifier mode and verdict, and list what had no independent check under `light` or `off`. This goes in the report to the user only, never on tickets or PRs. Run the step 4 sweep first.

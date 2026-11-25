@@ -29,6 +29,7 @@ To install only Claude or only Cursor: `./install.sh --claude` or `./install.sh 
 | [`todo-batch`](skills/todo-batch/SKILL.md) | Many small unrelated TODOs → one worktree, one branch, one PR. |
 | [`sprint`](skills/sprint/SKILL.md) | Multi-PR program. CEO / PM / EM / Verifier / Designer. Independent PRs or a cutover branch. |
 | [`blitz`](skills/blitz/SKILL.md) | A queue of mixed tickets (code, spikes, messages, release steps) with parallel workers and a live board. |
+| [`verify`](skills/verify/SKILL.md) | Independent check: a fresh agent writes the checks before it sees the work, then re-runs them. Modes `full` (default), `light`, `off`. |
 | [`browser-tests`](skills/browser-tests/SKILL.md) | Playwright proof-of-work: render-gated screenshots, evidence, upload to the PR. |
 | [`pr-review-loop`](skills/pr-review-loop/SKILL.md) | Drive cubic/codex (or equivalent bots) to green. Humans never block. Merge is out of scope. |
 
